@@ -7,49 +7,35 @@ permissions:
   contents: write
 
 jobs:
-  command-server:
+  runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    timeout-minutes: 360        # 6 hours max
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Restore state
-        run: |
-          if [ -f state.tar.gz ]; then
-            tar -xzf state.tar.gz -C /home/runner
-          fi
-
-      - name: Run command processor
+      - name: Start persistent command loop
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main
 
-          LAST_MOD=0
-          while true; do
-              if [ -f command.txt ]; then
-                  CURRENT_MOD=$(stat -c %Y command.txt)
-                  if [ $CURRENT_MOD -gt $LAST_MOD ]; then
-                      COMMAND=$(cat command.txt)
-                      LAST_MOD=$CURRENT_MOD
-                      echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] \$ $COMMAND" >> output.txt
-                      eval "$COMMAND" >> output.txt 2>&1
-                      echo "" >> output.txt
-                      git add output.txt
-                      git commit -m "Execute: $COMMAND" || true
-                      git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
-                  fi
-              fi
-              sleep 3
-          done
+          # Remember last modification time of command.txt
+          last_mtime=0
 
-      - name: Save final state
-        if: always()
-        run: |
-          tar -czf state.tar.gz -C /home/runner . --exclude="work/.*" --exclude=".cache" 2>/dev/null || true
-          git add state.tar.gz
-          git commit -m "Save state" || true
-          git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
+          while true; do
+            if [ -f command.txt ]; then
+              current_mtime=$(stat -c %Y command.txt)
+              if [ $current_mtime -gt $last_mtime ]; then
+                command=$(cat command.txt)
+                last_mtime=$current_mtime
+                echo "----------------------------------------" >> output.txt
+                echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] $ $command" >> output.txt
+                eval "$command" >> output.txt 2>&1
+                echo "" >> output.txt
+                git add output.txt
+                git commit -m "Executed: $command" || true
+                git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
+              fi
+            fi
+            sleep 3
+          done
