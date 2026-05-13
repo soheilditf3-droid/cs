@@ -1,1 +1,1 @@
-pwd
+python --version
