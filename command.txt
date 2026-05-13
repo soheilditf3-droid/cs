@@ -1,1 +1,1 @@
-curl -I -s https://www.youtube.com | head -n 1
+ping -c 4 youtube.com
