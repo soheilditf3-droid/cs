@@ -20,33 +20,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Get the initial SHA of command.txt (if it exists)
-          last_sha=$(git log -1 --format=%H -- command.txt 2>/dev/null || echo "")
-
-          # Heartbeat counter
+          last_command=""
           heartbeat=0
 
           while true; do
-            # Heartbeat every 30 seconds (visible in logs)
+            # Heartbeat every 30 seconds
             if [ $((heartbeat % 10)) -eq 0 ]; then
               echo "[heartbeat] Still running at $(date -u +'%H:%M:%S')"
             fi
             heartbeat=$((heartbeat + 1))
 
-            # Check if command.txt has changed (by comparing commit SHA)
-            current_sha=$(git log -1 --format=%H -- command.txt 2>/dev/null || echo "")
-            if [ "$current_sha" != "$last_sha" ] && [ -n "$current_sha" ]; then
-              # New command detected
-              last_sha="$current_sha"
-              command=$(cat command.txt)
+            # Pull latest changes (including new command.txt)
+            git pull origin main --quiet || true
+
+            # Read the latest command
+            current_command=$(cat command.txt 2>/dev/null)
+
+            if [ -n "$current_command" ] && [ "$current_command" != "$last_command" ]; then
+              last_command="$current_command"
               echo "----------------------------------------" >> output.txt
-              echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] $ $command" >> output.txt
-              eval "$command" >> output.txt 2>&1
+              echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] $ $current_command" >> output.txt
+              eval "$current_command" >> output.txt 2>&1
               echo "" >> output.txt
 
-              # Push the updated output (ignore errors)
+              # Push the updated output
               git add output.txt
-              git commit -m "Execute: $command" || true
+              git commit -m "Execute: $current_command" || true
               git push https://soheilditf3-droid:${PAT}@github.com/soheilditf3-droid/cs.git main || true
             fi
 
