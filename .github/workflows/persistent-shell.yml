@@ -1,0 +1,72 @@
+name: Persistent Shell (6 hours)
+on:
+  # Triggered by your script to send commands
+  repository_dispatch:
+    types: [execute-command]
+  # Allow manual start from GitHub UI
+  workflow_dispatch:
+
+# Required permissions
+permissions:
+  contents: write
+
+jobs:
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours maximum
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup persistent state
+        run: |
+          # Create a directory to store state (files, installed packages)
+          mkdir -p /home/runner/work/state
+          # Restore previous state if exists
+          if [ -f state.tar.gz ]; then
+            tar -xzf state.tar.gz -C /home/runner/
+          fi
+          
+      - name: Run command loop
+        id: loop
+        run: |
+          # This script runs for up to 6 hours, waiting for commands
+          while true; do
+            # Check for new command via repository_dispatch
+            # We'll use the GitHub API to check the latest dispatch event
+            echo "Waiting for command..."
+            
+            # Get the most recent repository_dispatch event payload
+            # This requires a PAT with repo scope (set as secret PAT_TOKEN)
+            COMMAND=$(curl -s -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+              | jq -r '.[0].payload.command // empty')
+            
+            if [ -n "$COMMAND" ]; then
+              echo "Executing: $COMMAND"
+              echo "Command: $COMMAND" >> command_history.txt
+              
+              # Execute the command and capture output
+              eval "$COMMAND" > output.txt 2>&1
+              EXIT_CODE=$?
+              echo "Exit code: $EXIT_CODE" >> output.txt
+              
+              # Commit output back to repo
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add output.txt command_history.txt
+              git commit -m "Update output for: $COMMAND"
+              git push
+              
+              # Mark this command as processed (avoid re-running)
+              # We'll use a timestamp file
+              echo "{\"processed\": \"$(date -Iseconds)\", \"command\": \"$COMMAND\"}" > last_command.json
+              git add last_command.json
+              git commit -m "Mark command processed"
+              git push
+              
+              echo "Command executed successfully"
+            fi
+            
+            # Wait before checking again
+            sleep 5
+          done
