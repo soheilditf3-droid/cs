@@ -1,1 +1,1 @@
-﻿echo 'Hello from Iran! This is running on GitHub runner'
+echo 'Hello from Iran!'
