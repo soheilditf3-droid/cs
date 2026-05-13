@@ -1,1 +1,1 @@
-cat /etc/os-release
+pwd
