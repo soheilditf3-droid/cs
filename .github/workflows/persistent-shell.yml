@@ -1,72 +1,108 @@
 name: Persistent Shell (6 hours)
-on:
-  # Triggered by your script to send commands
-  repository_dispatch:
-    types: [execute-command]
-  # Allow manual start from GitHub UI
-  workflow_dispatch:
 
-# Required permissions
+on:
+  # Manually start from GitHub UI or CLI
+  workflow_dispatch:
+  # Optionally auto‑restart every 6 hours (adjust cron if needed)
+  # schedule:
+  #   - cron: '0 */6 * * *'
+
+# Grant write permissions to push output.txt and state.tar.gz
 permissions:
   contents: write
 
 jobs:
-  runner:
+  command-server:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours maximum
+    timeout-minutes: 360           # 6 hours max
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup persistent state
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # needed for state restore
+
+      - name: Restore previous state
         run: |
-          # Create a directory to store state (files, installed packages)
-          mkdir -p /home/runner/work/state
-          # Restore previous state if exists
+          # If a state archive exists, unpack it into the runner's home
           if [ -f state.tar.gz ]; then
-            tar -xzf state.tar.gz -C /home/runner/
+            echo "Restoring state ..."
+            tar -xzf state.tar.gz -C /home/runner
           fi
-          
-      - name: Run command loop
-        id: loop
+
+      - name: Create command processing loop
         run: |
-          # This script runs for up to 6 hours, waiting for commands
-          while true; do
-            # Check for new command via repository_dispatch
-            # We'll use the GitHub API to check the latest dispatch event
-            echo "Waiting for command..."
-            
-            # Get the most recent repository_dispatch event payload
-            # This requires a PAT with repo scope (set as secret PAT_TOKEN)
-            COMMAND=$(curl -s -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-              | jq -r '.[0].payload.command // empty')
-            
-            if [ -n "$COMMAND" ]; then
-              echo "Executing: $COMMAND"
-              echo "Command: $COMMAND" >> command_history.txt
-              
-              # Execute the command and capture output
-              eval "$COMMAND" > output.txt 2>&1
-              EXIT_CODE=$?
-              echo "Exit code: $EXIT_CODE" >> output.txt
-              
-              # Commit output back to repo
-              git config user.name "github-actions[bot]"
-              git config user.email "github-actions[bot]@users.noreply.github.com"
-              git add output.txt command_history.txt
-              git commit -m "Update output for: $COMMAND"
-              git push
-              
-              # Mark this command as processed (avoid re-running)
-              # We'll use a timestamp file
-              echo "{\"processed\": \"$(date -Iseconds)\", \"command\": \"$COMMAND\"}" > last_command.json
-              git add last_command.json
-              git commit -m "Mark command processed"
-              git push
-              
-              echo "Command executed successfully"
+          cat > /home/runner/process_commands.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# File paths
+COMMAND_FILE="command.txt"
+OUTPUT_FILE="output.txt"
+STATE_FILE="state.tar.gz"
+LAST_SHA=""
+
+# Git configuration (using PAT for push rights)
+git config user.name "github-actions[bot]"
+git config user.email "github-actions[bot]@users.noreply.github.com"
+
+# Ensure we have the latest state before starting
+git pull origin main
+
+echo "Persistent shell started. Waiting for commands in $COMMAND_FILE ..."
+
+while true; do
+    # Check if command.txt exists and has content
+    if [ -f "$COMMAND_FILE" ]; then
+        CURRENT_SHA=$(sha256sum "$COMMAND_FILE" | cut -d' ' -f1)
+
+        # Execute only if file content changed
+        if [ "$CURRENT_SHA" != "$LAST_SHA" ]; then
+            COMMAND=$(cat "$COMMAND_FILE")
+            LAST_SHA="$CURRENT_SHA"
+
+            echo "----------------------------------------" >> "$OUTPUT_FILE"
+            echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] \$ $COMMAND" >> "$OUTPUT_FILE"
+
+            # Run the command, capture stdout+stderr
+            # Use `eval` to handle quotes and pipes properly
+            if eval "$COMMAND" >> "$OUTPUT_FILE" 2>&1; then
+                echo "[Exit code: 0]" >> "$OUTPUT_FILE"
+            else
+                echo "[Exit code: $?]" >> "$OUTPUT_FILE"
             fi
-            
-            # Wait before checking again
-            sleep 5
-          done
+            echo "" >> "$OUTPUT_FILE"
+
+            # Commit and push the updated output
+            git add "$OUTPUT_FILE"
+            git commit -m "Execute: $COMMAND" || true
+            git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
+
+            # Save runner state (home directory) after each command
+            # This preserves pip installs, virtual envs, etc.
+            tar -czf "$STATE_FILE" -C /home/runner . --exclude="work/.*" --exclude=".cache" 2>/dev/null || true
+            git add "$STATE_FILE"
+            git commit -m "Update state snapshot" || true
+            git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
+
+            echo "✅ Command executed and state saved."
+        fi
+    fi
+
+    # Wait before checking again (reduce API load)
+    sleep 3
+done
+EOF
+          chmod +x /home/runner/process_commands.sh
+
+      - name: Run persistent command processor
+        run: |
+          /home/runner/process_commands.sh
+
+      - name: Save final state (on workflow stop)
+        if: always()
+        run: |
+          tar -czf state.tar.gz -C /home/runner . --exclude="work/.*" --exclude=".cache" 2>/dev/null || true
+          git add state.tar.gz
+          git commit -m "Save final state before stopping" || true
+          git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
