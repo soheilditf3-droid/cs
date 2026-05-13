@@ -9,23 +9,24 @@ permissions:
 jobs:
   runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 360        # 6 hours max
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start persistent command loop
+      - name: Create watcher script
         run: |
+          cat > /home/runner/watcher.sh << 'EOF'
+          #!/bin/bash
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main
 
-          # Remember last modification time of command.txt
           last_mtime=0
-
           while true; do
             if [ -f command.txt ]; then
               current_mtime=$(stat -c %Y command.txt)
-              if [ $current_mtime -gt $last_mtime ]; then
+              if [ "$current_mtime" -gt "$last_mtime" ]; then
                 command=$(cat command.txt)
                 last_mtime=$current_mtime
                 echo "----------------------------------------" >> output.txt
@@ -39,3 +40,8 @@ jobs:
             fi
             sleep 3
           done
+          EOF
+          chmod +x /home/runner/watcher.sh
+
+      - name: Run persistent loop (6 hours)
+        run: /home/runner/watcher.sh
