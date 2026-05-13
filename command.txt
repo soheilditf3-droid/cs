@@ -1,1 +1,1 @@
-curl -I https://www.google.com
+curl -I -s https://www.youtube.com | head -n 1
