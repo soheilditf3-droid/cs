@@ -1,0 +1,53 @@
+name: Interactive Command Runner
+on:
+  workflow_dispatch:                     # 1. Allows manual trigger
+    inputs:
+      command:
+        description: 'Command to execute'
+        required: true
+        default: 'echo "Hello World"'
+  repository_dispatch:                   # 2. Allows API trigger
+    types: [run-command]
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Command
+        id: runner
+        run: |
+          # Determine which command source to use
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            COMMAND="${{ github.event.inputs.command }}"
+          else
+            # Read command from a file for repository_dispatch
+            COMMAND=$(cat command.txt)
+          fi
+
+          echo "Executing: $COMMAND"
+          
+          # Execute the command and capture output
+          OUTPUT=$(eval "$COMMAND" 2>&1)
+          EXIT_CODE=$?
+          
+          # Save output to a file (this will be committed)
+          echo "$OUTPUT" > output.txt
+          echo "Exit code: $EXIT_CODE" >> output.txt
+          
+          # Also save as a step output
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+      - name: Commit output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output.txt
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update command output"
+          git push
