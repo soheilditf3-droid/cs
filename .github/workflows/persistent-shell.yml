@@ -16,4 +16,4 @@ jobs:
       - name: Run persistent watcher
         env:
           PAT: ${{ secrets.PAT_TOKEN }}
-        run: ./watcher.sh
+        run: bash watcher.sh
