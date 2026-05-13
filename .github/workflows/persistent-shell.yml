@@ -13,11 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create watcher script
+      - name: Persistent command loop
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          cat > /home/runner/watcher.sh << 'EOF'
-          #!/bin/bash
-          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main
@@ -35,13 +34,8 @@ jobs:
                 echo "" >> output.txt
                 git add output.txt
                 git commit -m "Executed: $command" || true
-                git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
+                git push https://soheilditf3-droid:${PAT_TOKEN}@github.com/${{ github.repository }}.git main
               fi
             fi
             sleep 3
           done
-          EOF
-          chmod +x /home/runner/watcher.sh
-
-      - name: Run persistent loop (6 hours)
-        run: /home/runner/watcher.sh
