@@ -22,23 +22,22 @@ jobs:
             tar -xzf state.tar.gz -C /home/runner
           fi
 
-      - name: Create processor script
+      - name: Run command processor
         run: |
-          cat > /home/runner/process.sh << 'EOF'
-          #!/bin/bash
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main
 
-          LAST_SHA=""
+          LAST_MOD=0
           while true; do
               if [ -f command.txt ]; then
-                  CURRENT_SHA=$(sha256sum command.txt | cut -d' ' -f1)
-                  if [ "$CURRENT_SHA" != "$LAST_SHA" ]; then
+                  CURRENT_MOD=$(stat -c %Y command.txt)
+                  if [ $CURRENT_MOD -gt $LAST_MOD ]; then
                       COMMAND=$(cat command.txt)
-                      LAST_SHA="$CURRENT_SHA"
+                      LAST_MOD=$CURRENT_MOD
                       echo "[$(date -u +'%Y-%m-%d %H:%M:%S UTC')] \$ $COMMAND" >> output.txt
                       eval "$COMMAND" >> output.txt 2>&1
+                      echo "" >> output.txt
                       git add output.txt
                       git commit -m "Execute: $COMMAND" || true
                       git push https://soheilditf3-droid:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git main
@@ -46,11 +45,6 @@ jobs:
               fi
               sleep 3
           done
-          EOF
-          chmod +x /home/runner/process.sh
-
-      - name: Run command processor
-        run: /home/runner/process.sh
 
       - name: Save final state
         if: always()
