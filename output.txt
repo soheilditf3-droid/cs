@@ -64,3 +64,7 @@ set-cookie: __Secure-BUCKET=CEs; expires=Mon, 09-Nov-2026 07:17:15 GMT; path=/; 
 alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
 
 
+----------------------------------------
+[2026-05-13 07:18:08 UTC] $ curl -I -s https://www.youtube.com | head -n 1
+HTTP/2 200 
+
